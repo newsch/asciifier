@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 """Generate and parse calibration papers"""
+# TODO: determine metrics for ability to reproduce image
+# TODO: add logging
 import json
 import math
 import string
@@ -11,22 +13,37 @@ from PIL import Image
 
 
 # types
-Charlist = List[str]  # list of characters to use
+Charset = List[str]  # list of characters to use
 Charmap = Dict[int, List[str]]  # mapping of brightness to characters
 
-ASCII: Charlist = string.digits + string.ascii_letters + string.punctuation + ' '  # doesn't include whitespace
+ASCII: Charset = string.digits + string.ascii_letters + string.punctuation + ' '  # doesn't include whitespace
 
 aspect_ratio = 1.0  # width/height of character space
 
 
-def get_calibration_sheet(charlist: Charlist, wrap: int = 10):
+def make_calibration_sheet(charset: Charset, wrap: int = 10, guidelines: bool = True) -> str:
+    """Generate a calibration sheet from a charset."""
     lines = []
-    for i in range(0, len(charlist), wrap):
-        lines.append(charlist[i:i+wrap])
-    return lines
+    for i in range(0, len(charset), wrap):
+        lines.append(charset[i:i+wrap])
+    if guidelines:
+        h_line = '+'+'-'*wrap
+        lines = ['|'+l for l in lines]
+        lines.insert(0, h_line)
+    return '\n'.join(lines)
 
 
 def convert_image(f, width: int, charmap: Charmap, aspect_ratio: float) -> str:
+    """Convert an image to ascii.
+
+    Args:
+        f: A filepath or file-like object of the image.
+        charmap: The charmap to use.
+        aspect_ratio: The ratio of width / height of character, used to
+            compensate for stretching/compression of the output format.
+
+    Returns: A string of characters from charmap.
+    """
     # # TODO: support given height
     # if width is None != height is None:
     #     # TODO: allow cropping/defining hard boundaries
@@ -43,7 +60,6 @@ def convert_image(f, width: int, charmap: Charmap, aspect_ratio: float) -> str:
     if len(shape) != 2:
         img_a = rgb2gs(img_a)  # np array of img in grayscale
     return array2ascii(expand_contrast(img_a), charmap)
-
 
 
 def array2ascii(img: np.ndarray, charmap: Charmap) -> str:
@@ -63,10 +79,10 @@ def array2ascii(img: np.ndarray, charmap: Charmap) -> str:
         return idx
     f = find_nearest(img, list(charmap.keys()))
     lines = [''.join(map(lambda a: list(charmap.values())[a][0], row)) for row in f.astype(int)]
-    return '\n'.join(lines) + '\n'
+    return '\n'.join(lines)
 
 
-def build_charmap_from_img(cal_img: np.ndarray, charset: Charlist = ASCII,
+def build_charmap_from_img(cal_img: np.ndarray, charset: Charset = ASCII,
                            wrap: int = 10) -> Charmap:
     """Make a charmap from a corrected image of a calibration sheet."""
     num_lines = math.ceil(len(charset) / wrap)
@@ -78,7 +94,7 @@ def build_charmap_from_img(cal_img: np.ndarray, charset: Charlist = ASCII,
     return charmap
 
 
-def make_8bit_charmap(vals: List[float], charset: Charlist = ASCII) -> Charmap:
+def make_8bit_charmap(vals: List[float], charset: Charset = ASCII) -> Charmap:
     """Build a charmap from characters and values."""
     def map_vals_to_charset(vals, charset):
         return {c: int(round(vals[i])) for i, c in enumerate(charset)}
@@ -139,20 +155,22 @@ def sort_dict_by_value(d: Dict) -> Dict:
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    main_group = parser.add_mutually_exclusive_group()
-    main_group.add_argument('-g', '--generate-calibration', action='store_true',
-        help='generate a calibration sheet to print and scan')
-    main_group.add_argument('-c', '--calibrate-from-image',
-        type=argparse.FileType('rb'),
-        help='calculate character weights from an image')
+    main_group = parser.add_mutually_exclusive_group(required=True)
     main_group.add_argument('-i', '--image', type=argparse.FileType('rb'),
         help='Image to convert to ascii')
+    parser.add_argument('-w', '--width', type=int, default=80, help='width of output text')
+
+    main_group.add_argument('-g', '--generate-calibration', action='store_true',
+        help='generate a calibration sheet to print and scan')
+    main_group.add_argument('-c', '--calibrate-from-image', metavar='IMAGE',
+        type=argparse.FileType('rb'),
+        help='calculate character weights from an image')
     # TODO: add wrap, charlist to cmdline interface
 
     args = parser.parse_args()
 
     if args.generate_calibration:
-        [print(l) for l in get_calibration_sheet(ASCII)]
+        print(make_calibration_sheet(ASCII))
         exit(0)
     if args.calibrate_from_image:
         exit(0)
@@ -162,7 +180,7 @@ if __name__ == "__main__":
         charmap = reverse_dict(weights)
         print(convert_image(
             args.image,
-            width=80,
+            width=args.width,
             charmap=charmap,
             aspect_ratio=6/10))  # 10 CPI and 6 LPI
         exit(0)
