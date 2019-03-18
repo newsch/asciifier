@@ -32,15 +32,17 @@ def convert_image(f, width: int, charmap: Charmap, aspect_ratio: float) -> str:
     #     # TODO: allow cropping/defining hard boundaries
     #     raise ValueError("width or height must be defined, but not both.")
     img = Image.open(f)
-    ih, iw = img.size
+    iw, ih = img.size
     img_ratio = iw / ih
     new_h: float = (width / img_ratio)  # height based on image proportions
     scaled_h: float = new_h * aspect_ratio  # scaled to match charmap's aspect ratio
     new_size = (width, int(scaled_h))
     resized_img = img.resize(new_size)
-    img_a = rgb2gs(np.asarray(resized_img))  # np array of img in grayscale
-
-    return array2ascii(img_a, charmap)
+    img_a = np.asarray(resized_img)
+    shape = img_a.shape
+    if len(shape) != 2:
+        img_a = rgb2gs(img_a)  # np array of img in grayscale
+    return array2ascii(expand_contrast(img_a), charmap)
 
 
 
@@ -109,12 +111,12 @@ def calc_brightness(img: np.ndarray) -> float:
 
 def rgb2gs(img: np.ndarray) -> np.ndarray:
     """Convert an RGB image to single-channel grayscale."""
-    return np.mean(img[:,:,0:3], axis=2)
+    return np.mean(img[:, :, 0:3], axis=2)
 
 
 def expand_contrast(img: np.ndarray, lower=0, upper=255) -> np.ndarray:
     """Interpolate an image's values to fill a different range."""
-    return np.interp(img, [min(img), max(img)], [lower, upper])
+    return np.interp(img, [np.min(img), np.max(img)], [lower, upper])
 
 
 def reverse_dict(d: Dict) -> Dict:
