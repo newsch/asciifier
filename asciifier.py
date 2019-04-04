@@ -4,6 +4,7 @@
 # TODO: add logging
 import json
 import math
+import os
 import string
 from typing import Dict, List
 
@@ -33,6 +34,19 @@ def make_calibration_sheet(charset: Charset, wrap: int = 10, guidelines: bool = 
     return '\n'.join(lines)
 
 
+def img_to_array(f, width: int, aspect_ratio: float) -> np.ndarray:
+    """Convert an image file to a resampled numpy array."""
+    img = Image.open(f)
+    iw, ih = img.size
+    img_ratio = iw / ih
+    new_h: float = (width / img_ratio)  # height based on image proportions
+    scaled_h: float = new_h * aspect_ratio  # scaled to match charmap's aspect ratio
+    new_size = (width, int(scaled_h))
+    resized_img = img.resize(new_size)
+    img_a = np.asarray(resized_img)
+    return img_a
+
+
 def convert_image(f, width: int, charmap: Charmap, aspect_ratio: float) -> str:
     """Convert an image to ascii.
 
@@ -48,18 +62,20 @@ def convert_image(f, width: int, charmap: Charmap, aspect_ratio: float) -> str:
     # if width is None != height is None:
     #     # TODO: allow cropping/defining hard boundaries
     #     raise ValueError("width or height must be defined, but not both.")
-    img = Image.open(f)
-    iw, ih = img.size
-    img_ratio = iw / ih
-    new_h: float = (width / img_ratio)  # height based on image proportions
-    scaled_h: float = new_h * aspect_ratio  # scaled to match charmap's aspect ratio
-    new_size = (width, int(scaled_h))
-    resized_img = img.resize(new_size)
-    img_a = np.asarray(resized_img)
+    img_a = img_to_array(f, width, aspect_ratio)
     shape = img_a.shape
     if len(shape) != 2:
         img_a = rgb2gs(img_a)  # np array of img in grayscale
     return array2ascii(expand_contrast(img_a), charmap)
+
+
+def convert_split_image(f, width: int, charmap: Charmap, aspect_ratio: float) -> List[str]:
+    img_a = img_to_array(f, width, aspect_ratio)
+    shape = img_a.shape
+    if shape[2] < 3:
+        raise ValueError("image is not RGB")
+    adj_img = expand_contrast(img_a)
+    return [array2ascii(adj_img[:, :, i], charmap) for i in range(3)]
 
 
 def array2ascii(img: np.ndarray, charmap: Charmap) -> str:
@@ -159,6 +175,7 @@ if __name__ == "__main__":
     main_group.add_argument('-i', '--image', type=argparse.FileType('rb'),
         help='Image to convert to ascii')
     parser.add_argument('-w', '--width', type=int, default=80, help='width of output text')
+    parser.add_argument('-rgb', type=str, help="Convert each channel into separate images and save to file", metavar='FILE')
 
     main_group.add_argument('-g', '--generate-calibration', action='store_true',
         help='generate a calibration sheet to print and scan')
@@ -178,9 +195,23 @@ if __name__ == "__main__":
         with open('courier-scaled-charmap.json', 'r') as f:
             weights = json.loads(f.read())
         charmap = reverse_dict(weights)
-        print(convert_image(
-            args.image,
-            width=args.width,
-            charmap=charmap,
-            aspect_ratio=6/10))  # 10 CPI and 6 LPI
-        exit(0)
+
+        if args.rgb:
+            channels = convert_split_image(
+                args.image,
+                width=args.width,
+                charmap=charmap,
+                aspect_ratio=6/10)  # 10 CPI and 6 LPI
+
+            name, ext = os.path.splitext(args.rgb)
+            for i, c in enumerate(channels):
+                with open(name+'_'+{0:'r',1:'g',2:'b'}[i]+ext, 'w') as f:
+                    f.write(c)
+            exit(0)
+        else:
+            print(convert_image(
+                args.image,
+                width=args.width,
+                charmap=charmap,
+                aspect_ratio=6/10))  # 10 CPI and 6 LPI
+            exit(0)

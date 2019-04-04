@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Split text into separate files of fixed width."""
 import argparse
-import io
 import os
 from typing import List
 
