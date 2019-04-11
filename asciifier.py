@@ -6,7 +6,7 @@ import json
 import math
 import os
 import string
-from typing import Dict, List
+from typing import Dict, List, Tuple, Iterable
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -78,6 +78,16 @@ def convert_split_image(f, width: int, charmap: Charmap, aspect_ratio: float) ->
     return [array2ascii(adj_img[:, :, i], charmap) for i in range(3)]
 
 
+def convert_image_cymk(f, width: int, charmap: Charmap, aspect_ratio: float) -> List[str]:
+    img_a = img_to_array(f, width, aspect_ratio)
+    shape = img_a.shape
+    if shape[2] < 3:
+        raise ValueError("image is not RGB")
+    adj_img = expand_contrast(img_a)
+    cymk = img_rgb2cymk(adj_img)
+    return [array2ascii(cymk[:, :, i], charmap) for i in range(4)]
+
+
 def array2ascii(img: np.ndarray, charmap: Charmap) -> str:
     """Convert an image to ascii text."""
     def find_nearest(img_gs, vals):
@@ -95,7 +105,7 @@ def array2ascii(img: np.ndarray, charmap: Charmap) -> str:
         return idx
     f = find_nearest(img, list(charmap.keys()))
     lines = [''.join(map(lambda a: list(charmap.values())[a][0], row)) for row in f.astype(int)]
-    return '\n'.join(lines)
+    return '\n'.join(lines) + '\n'
 
 
 def build_charmap_from_img(cal_img: np.ndarray, charset: Charset = ASCII,
@@ -146,6 +156,25 @@ def rgb2gs(img: np.ndarray) -> np.ndarray:
     return np.mean(img[:, :, 0:3], axis=2)
 
 
+def img_rgb2cymk(img: np.ndarray) -> np.ndarray:
+    if img.shape[2] < 3:
+        raise ValueError("Image does not have 3 channels")
+    cymk = np.zeros((*img.shape[:2], 4))  # output array
+    for x in range(img.shape[0]):
+        for y in range(img.shape[1]):
+            cymk[x, y, :] = rgb2cymk(*img[x, y, :])
+    return cymk * 255
+
+
+def rgb2cymk(r, g, b) -> Tuple[int, int, int, int]:
+    rp, gp, bp = map(lambda a: a/255, (r, g, b))
+    k = 1 - max(rp, gp, bp)
+    if k == 1:  # true black
+        return 0, 0, 0, k
+    c, y, m = map((lambda a: (1-a-k) / (1-k)), (rp, gp, bp))
+    return c, y, m, k
+
+
 def expand_contrast(img: np.ndarray, lower=0, upper=255) -> np.ndarray:
     """Interpolate an image's values to fill a different range."""
     return np.interp(img, [np.min(img), np.max(img)], [lower, upper])
@@ -175,7 +204,8 @@ if __name__ == "__main__":
     main_group.add_argument('-i', '--image', type=argparse.FileType('rb'),
         help='Image to convert to ascii')
     parser.add_argument('-w', '--width', type=int, default=80, help='width of output text')
-    parser.add_argument('-rgb', type=str, help="Convert each channel into separate images and save to file", metavar='FILE')
+    parser.add_argument('-rgb', type=str, help="Convert each channel into separate images and save to files", metavar='FILE')
+    parser.add_argument('-cymk', type=str, help="Convert into separate cymk channels and save to files", metavar='FILE')
 
     main_group.add_argument('-g', '--generate-calibration', action='store_true',
         help='generate a calibration sheet to print and scan')
@@ -206,6 +236,18 @@ if __name__ == "__main__":
             name, ext = os.path.splitext(args.rgb)
             for i, c in enumerate(channels):
                 with open(name+'_'+{0:'r',1:'g',2:'b'}[i]+ext, 'w') as f:
+                    f.write(c)
+            exit(0)
+        elif args.cymk:
+            channels = convert_image_cymk(
+                args.image,
+                width=args.width,
+                charmap=charmap,
+                aspect_ratio=6/10)  # 10 CPI and 6 LPI
+
+            name, ext = os.path.splitext(args.cymk)
+            for i, c in enumerate(channels):
+                with open(name+'_'+{0:'c',1:'m',2:'y',3:'k'}[i]+ext, 'w') as f:
                     f.write(c)
             exit(0)
         else:
