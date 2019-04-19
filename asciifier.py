@@ -78,14 +78,14 @@ def convert_split_image(f, width: int, charmap: Charmap, aspect_ratio: float) ->
     return [array2ascii(adj_img[:, :, i], charmap) for i in range(3)]
 
 
-def convert_image_cymk(f, width: int, charmap: Charmap, aspect_ratio: float) -> List[str]:
+def convert_image_cmyk(f, width: int, charmap: Charmap, aspect_ratio: float) -> List[str]:
     img_a = img_to_array(f, width, aspect_ratio)
     shape = img_a.shape
     if shape[2] < 3:
         raise ValueError("image is not RGB")
-    adj_img = expand_contrast(img_a)
-    cymk = img_rgb2cymk(adj_img)
-    return [array2ascii(cymk[:, :, i], charmap) for i in range(4)]
+    # adj_img = expand_contrast(img_a)
+    cmyk = img_rgb2cmyk(img_a)
+    return [array2ascii(cmyk[:, :, i], charmap) for i in range(4)]
 
 
 def array2ascii(img: np.ndarray, charmap: Charmap) -> str:
@@ -156,23 +156,23 @@ def rgb2gs(img: np.ndarray) -> np.ndarray:
     return np.mean(img[:, :, 0:3], axis=2)
 
 
-def img_rgb2cymk(img: np.ndarray) -> np.ndarray:
+def img_rgb2cmyk(img: np.ndarray) -> np.ndarray:
     if img.shape[2] < 3:
         raise ValueError("Image does not have 3 channels")
-    cymk = np.zeros((*img.shape[:2], 4))  # output array
+    cmyk = np.zeros((*img.shape[:2], 4))  # output array
     for x in range(img.shape[0]):
         for y in range(img.shape[1]):
-            cymk[x, y, :] = rgb2cymk(*img[x, y, :])
-    return cymk * 255
+            cmyk[x, y, :] = rgb2cmyk(*img[x, y, :3])
+    return 255 - np.clip(cmyk, 0, 255) * 255
 
 
-def rgb2cymk(r, g, b) -> Tuple[int, int, int, int]:
+def rgb2cmyk(r, g, b) -> Tuple[int, int, int, int]:
     rp, gp, bp = map(lambda a: a/255, (r, g, b))
     k = 1 - max(rp, gp, bp)
     if k == 1:  # true black
         return 0, 0, 0, k
-    c, y, m = map((lambda a: (1-a-k) / (1-k)), (rp, gp, bp))
-    return c, y, m, k
+    c, m, y = map((lambda a: (1-a-k) / (1-k)), (rp, gp, bp))
+    return c, m, y, k
 
 
 def expand_contrast(img: np.ndarray, lower=0, upper=255) -> np.ndarray:
@@ -205,7 +205,7 @@ if __name__ == "__main__":
         help='Image to convert to ascii')
     parser.add_argument('-w', '--width', type=int, default=80, help='width of output text')
     parser.add_argument('-rgb', type=str, help="Convert each channel into separate images and save to files", metavar='FILE')
-    parser.add_argument('-cymk', type=str, help="Convert into separate cymk channels and save to files", metavar='FILE')
+    parser.add_argument('-cmyk', type=str, help="Convert into separate cmyk channels and save to files", metavar='FILE')
 
     main_group.add_argument('-g', '--generate-calibration', action='store_true',
         help='generate a calibration sheet to print and scan')
@@ -238,14 +238,14 @@ if __name__ == "__main__":
                 with open(name+'_'+{0:'r',1:'g',2:'b'}[i]+ext, 'w') as f:
                     f.write(c)
             exit(0)
-        elif args.cymk:
-            channels = convert_image_cymk(
+        elif args.cmyk:
+            channels = convert_image_cmyk(
                 args.image,
                 width=args.width,
                 charmap=charmap,
                 aspect_ratio=6/10)  # 10 CPI and 6 LPI
 
-            name, ext = os.path.splitext(args.cymk)
+            name, ext = os.path.splitext(args.cmyk)
             for i, c in enumerate(channels):
                 with open(name+'_'+{0:'c',1:'m',2:'y',3:'k'}[i]+ext, 'w') as f:
                     f.write(c)
