@@ -19,7 +19,7 @@ Charmap = Dict[int, List[str]]  # mapping of brightness to characters
 
 ASCII: Charset = string.digits + string.ascii_letters + string.punctuation + ' '  # doesn't include whitespace
 
-aspect_ratio = 1.0  # width/height of character space
+aspect_ratio = 6/10  # width/height of character space, 10 CPI and 6 LPI
 
 
 def reverse_dict(d: Dict) -> Dict:
@@ -67,25 +67,6 @@ def convert_image(f, width: int, charmap: Charmap, aspect_ratio: float) -> str:
     if len(shape) != 2:
         img_a = rgb2gs(img_a)  # np array of img in grayscale
     return array2ascii(expand_contrast(img_a), charmap)
-
-
-def convert_split_image(f, width: int, charmap: Charmap, aspect_ratio: float) -> List[str]:
-    img_a = img_to_array(f, width, aspect_ratio)
-    shape = img_a.shape
-    if shape[2] < 3:
-        raise ValueError("image is not RGB")
-    adj_img = expand_contrast(img_a)
-    return [array2ascii(adj_img[:, :, i], charmap) for i in range(3)]
-
-
-def convert_image_cmyk(f, width: int, charmap: Charmap, aspect_ratio: float) -> List[str]:
-    img_a = img_to_array(f, width, aspect_ratio)
-    shape = img_a.shape
-    if shape[2] < 3:
-        raise ValueError("image is not RGB")
-    # adj_img = expand_contrast(img_a)
-    cmyk = img_rgb2cmyk(img_a)
-    return [array2ascii(cmyk[:, :, i], charmap) for i in range(4)]
 
 
 def array2ascii(img: np.ndarray, charmap: Charmap) -> str:
@@ -161,11 +142,16 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     # main_group = parser.add_mutually_exclusive_group(required=True)
     parser.add_argument('image', help='Image to convert to ascii')
-    parser.add_argument('-w', '--width', type=int, default=80, help='width of output text')
+    parser.add_argument('-w', '--width', type=int, default=80,
+        help='Width of output text in characters')
     output_group = parser.add_mutually_exclusive_group()
-    output_group.add_argument('--rgb', action='store_true', help="Write Red, Green, and Blue channels to separate files")
-    output_group.add_argument('--cmyk', action='store_true', help="Convert to CMYK and write to separate files")
+    output_group.add_argument('--rgb', action='store_true',
+        help="Write Red, Green, and Blue channels to separate files")
+    output_group.add_argument('--cmyk', action='store_true',
+        help="Convert to CMYK and write to separate files")
     # TODO: add wrap, charlist to cmdline interface
+    parser.add_argument('-c', '--expand-contrast', action='store_true',
+        help="Expand image values to fill 0-255 range.")
     parser.add_argument('out', nargs="?", default=".", help='Output location')
 
     args = parser.parse_args()
@@ -192,18 +178,22 @@ if __name__ == "__main__":
         outfile_name, outfile_ext = os.path.splitext(outfile)
 
     # main logic
+    # load/make charmap
     with open('courier-scaled-charmap.json', 'r') as f:
         weights = json.loads(f.read())
     charmap = reverse_dict(weights)
 
-    # TODO: break up conversion into resizing, correction, and conversion options
+    width = args.width
+    img_a = img_to_array(infile, width, aspect_ratio)
+    shape = img_a.shape
+    if args.expand_contrast:
+        img_a = expand_contrast(img_a)
+
     if args.rgb:
         # write rgb channels to 3 files
-        channels = convert_split_image(
-            args.image,
-            width=args.width,
-            charmap=charmap,
-            aspect_ratio=6/10)  # 10 CPI and 6 LPI
+        if shape[2] < 3:
+            raise ValueError("image is not RGB")
+        channels = [array2ascii(img_a[:, :, i], charmap) for i in range(3)]
 
         name, ext = os.path.splitext(outfile)
         for i, c in enumerate(channels):
@@ -211,11 +201,10 @@ if __name__ == "__main__":
                 f.write(c)
     elif args.cmyk:
         # write cmyk channels to 4 files
-        channels = convert_image_cmyk(
-            args.image,
-            width=args.width,
-            charmap=charmap,
-            aspect_ratio=6/10)  # 10 CPI and 6 LPI
+        if shape[2] < 3:
+            raise ValueError("image is not RGB")
+        cmyk = img_rgb2cmyk(img_a)
+        channels = [array2ascii(cmyk[:, :, i], charmap) for i in range(4)]
 
         name, ext = os.path.splitext(outfile)
         for i, c in enumerate(channels):
@@ -223,10 +212,9 @@ if __name__ == "__main__":
                 f.write(c)
     else:
         # write single-pass grayscale output
+        if len(shape) != 2:
+            img_a = rgb2gs(img_a)  # np array of img in grayscale
+        txt = array2ascii(img_a, charmap)
         with open(outfile, 'w') as f:
-            f.write(convert_image(
-                args.image,
-                width=args.width,
-                charmap=charmap,
-                aspect_ratio=6/10))  # 10 CPI and 6 LPI
+            f.write(txt)  # 10 CPI and 6 LPI
     exit(0)
