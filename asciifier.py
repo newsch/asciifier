@@ -22,16 +22,16 @@ ASCII: Charset = string.digits + string.ascii_letters + string.punctuation + ' '
 aspect_ratio = 1.0  # width/height of character space
 
 
-def make_calibration_sheet(charset: Charset, wrap: int = 10, guidelines: bool = True) -> str:
-    """Generate a calibration sheet from a charset."""
-    lines = []
-    for i in range(0, len(charset), wrap):
-        lines.append(charset[i:i+wrap])
-    if guidelines:
-        h_line = '+'+'-'*wrap
-        lines = ['|'+l for l in lines]
-        lines.insert(0, h_line)
-    return '\n'.join(lines)
+def reverse_dict(d: Dict) -> Dict:
+    """Reverse a dict, with common values grouped into a list.
+
+    >>> reverse_dict({'a': 1, 'b': 1, 'c': 3})
+    {1: ['a', 'b'], 3: ['c']}
+    """
+    rdict: Dict = {}
+    for k, v in d.items():
+        rdict.setdefault(v, []).append(k)
+    return rdict
 
 
 def img_to_array(f, width: int, aspect_ratio: float) -> np.ndarray:
@@ -108,25 +108,6 @@ def array2ascii(img: np.ndarray, charmap: Charmap) -> str:
     return '\n'.join(lines) + '\n'
 
 
-def build_charmap_from_img(cal_img: np.ndarray, charset: Charset = ASCII,
-                           wrap: int = 10) -> Charmap:
-    """Make a charmap from a corrected image of a calibration sheet."""
-    num_lines = math.ceil(len(charset) / wrap)
-    char_imgs = split_image(cal_img, cols=wrap, rows=num_lines)
-    avg_bs = map(calc_brightness, char_imgs)
-    # expand vals to fill 0, 255  TODO: explore other interpolation methods
-    scaled_avg_bs = np.interp(avg_bs, [min(avg_bs), max(avg_bs)], [0, 255])
-    charmap = make_8bit_charmap(scaled_avg_bs, charset)
-    return charmap
-
-
-def make_8bit_charmap(vals: List[float], charset: Charset = ASCII) -> Charmap:
-    """Build a charmap from characters and values."""
-    def map_vals_to_charset(vals, charset):
-        return {c: int(round(vals[i])) for i, c in enumerate(charset)}
-    return reverse_dict(map_vals_to_charset(vals, charset))
-
-
 def split_image(img: np.ndarray, rows: int = 10, cols: int = 10) -> List[np.ndarray]:
     """Split an image into a grid of subimages.
 
@@ -144,11 +125,6 @@ def split_image(img: np.ndarray, rows: int = 10, cols: int = 10) -> List[np.ndar
         for wn, ws in enumerate(range(cols), 1):
             out.append(img[h_ind(hs):h_ind(hn), w_ind(ws):w_ind(wn), :])
     return out
-
-
-def calc_brightness(img: np.ndarray) -> float:
-    """Calculate the average brightness of an image."""
-    return np.mean(img, dtype=float)
 
 
 def rgb2gs(img: np.ndarray) -> np.ndarray:
@@ -180,47 +156,20 @@ def expand_contrast(img: np.ndarray, lower=0, upper=255) -> np.ndarray:
     return np.interp(img, [np.min(img), np.max(img)], [lower, upper])
 
 
-def reverse_dict(d: Dict) -> Dict:
-    """Reverse a dict, with common values grouped into a list.
-
-    >>> reverse_dict({'a': 1, 'b': 1, 'c': 3})
-    {1: ['a', 'b'], 3: ['c']}
-    """
-    rdict: Dict = {}
-    for k, v in d.items():
-        rdict.setdefault(v, []).append(k)
-    return rdict
-
-
-def sort_dict_by_value(d: Dict) -> Dict:
-    """Sort a dictionary by value."""
-    return {k: d[k] for k in sorted(d, key=d.get)}
-
-
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
-    main_group = parser.add_mutually_exclusive_group(required=True)
-    main_group.add_argument('-i', '--image', type=argparse.FileType('rb'),
+    # main_group = parser.add_mutually_exclusive_group(required=True)
+    parser.add_argument('image', type=argparse.FileType('rb'),
         help='Image to convert to ascii')
     parser.add_argument('-w', '--width', type=int, default=80, help='width of output text')
     parser.add_argument('-rgb', type=str, help="Convert each channel into separate images and save to files", metavar='FILE')
     parser.add_argument('-cmyk', type=str, help="Convert into separate cmyk channels and save to files", metavar='FILE')
-
-    main_group.add_argument('-g', '--generate-calibration', action='store_true',
-        help='generate a calibration sheet to print and scan')
-    main_group.add_argument('-c', '--calibrate-from-image', metavar='IMAGE',
-        type=argparse.FileType('rb'),
-        help='calculate character weights from an image')
     # TODO: add wrap, charlist to cmdline interface
+    # parser.add_argument('outfile', help='Output name')
 
     args = parser.parse_args()
 
-    if args.generate_calibration:
-        print(make_calibration_sheet(ASCII))
-        exit(0)
-    if args.calibrate_from_image:
-        exit(0)
     if args.image:
         with open('courier-scaled-charmap.json', 'r') as f:
             weights = json.loads(f.read())
